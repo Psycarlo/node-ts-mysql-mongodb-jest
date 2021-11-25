@@ -1,6 +1,7 @@
 ## Requirements
 
-- Node.js - Recommended: [LTS](https://nodejs.org/en/)
+- Node.js: [Current](https://nodejs.org/en/)
+- Docker: [Current](https://www.docker.com/get-started)
 - MySQL: [Current](https://mysql.com/downloads/)
 - MongoDB: [Current](https://mongodb.com/try/download/community)
 - (Optional) [Visual Studio Code](https://code.visualstudio.com/)
@@ -13,6 +14,9 @@
 ### Setup
 
 0. Clone the repository
+
+TODO: .env files
+TODO: npm install
 
 ### Run
 
@@ -55,6 +59,8 @@ npm run test:ci
 ```
 
 TODO: Run Integration tests
+
+Note: Use the AAA Pattern - Arrange, Act, Assert when testing
 
 ### Lint & Format
 
