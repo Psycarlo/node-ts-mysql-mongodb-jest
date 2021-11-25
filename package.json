@@ -1,0 +1,51 @@
+{
+  "name": "node-ts-mysql-mongodb-jest",
+  "version": "1.0.0",
+  "description": "Example for testing endpoints that use db calls, api calls, with jest",
+  "main": "server.js",
+  "repository": "https://github.com/Psycarlo/node-ts-mysql-mongodb-jest.git",
+  "author": "Psycarlo <psycarlo1@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "start": "ts-node src/server.ts",
+    "dev": "npm-watch start",
+    "lint": "eslint --ext .ts src",
+    "lint:fix": "eslint --ext .ts src --fix",
+    "format": "prettier --config .prettierrc.js --check ./src/**/*.ts",
+    "format:fix": "prettier --config .prettierrc.js --write ./src/**/*.ts",
+    "test": "jest src",
+    "test:watch": "jest src --watch",
+    "test:coverage": "jest src --coverage",
+    "test:fast": "jest src --maxWorkers=50%",
+    "test:ci": "jest src --runInBand"
+  },
+  "watch": {
+    "start": {
+      "patterns": [
+        "src"
+      ],
+      "extensions": [
+        "ts"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@types/jest": "^27.0.3",
+    "@typescript-eslint/eslint-plugin": "^5.4.0",
+    "@typescript-eslint/parser": "^5.4.0",
+    "dotenv": "^10.0.0",
+    "eslint": "^8.3.0",
+    "eslint-config-prettier": "^8.3.0",
+    "eslint-config-standard": "^16.0.3",
+    "eslint-plugin-import": "^2.25.3",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-prettier": "^4.0.0",
+    "eslint-plugin-promise": "^5.1.1",
+    "jest": "^27.3.1",
+    "npm-watch": "^0.11.0",
+    "prettier": "^2.4.1",
+    "ts-jest": "^27.0.7",
+    "ts-node": "^10.4.0",
+    "typescript": "^4.5.2"
+  }
+}

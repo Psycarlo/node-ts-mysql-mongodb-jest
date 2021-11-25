@@ -10,4 +10,74 @@
 
 ## Getting Started
 
+### Setup
+
 0. Clone the repository
+
+### Run
+
+Run with watch (nodemon)
+
+```
+npm run dev
+```
+
+Run without watch
+
+```
+npm start
+```
+
+### Testing
+
+Run tests:
+
+```
+npm test
+```
+
+Run and watch tests:
+
+```
+npm run test:watch
+```
+
+Run tests and output a coverage folder:
+
+```
+npm run test:coverage
+```
+
+Run tests for ci (jest workers disabled):
+
+```
+npm run test:ci
+```
+
+TODO: Run Integration tests
+
+### Lint & Format
+
+To check for linting warnings and errors:
+
+```
+npm run lint
+```
+
+Try to fix those:
+
+```
+npm run lint:fix
+```
+
+To check for formatting warnings and errors:
+
+```
+npm run `format`
+```
+
+Try to fix those:
+
+```
+npm run `format:fix`
+```
