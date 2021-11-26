@@ -1,6 +1,30 @@
 version: '3.8'
 services:
+  mongo:
+    image: mongo
+    logging:
+      driver: none
+    environment:
+      MONGO_INITDB_DATABASE: mongotests
+      MONGO_INITDB_ROOT_USERNAME: psycarlo
+      MONGO_INITDB_ROOT_PASSWORD: bitcoinislove
+  mysql:
+    image: mysql
+    logging:
+      driver: none
+    environment:
+      MYSQL_DATABASE: mysqltests
+      MYSQL_USER: psycarlo
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_PASSWORD: bitcoinislove
   integration:
     build:
       context: ./
       dockerfile: Dockerfile
+    environment:
+      MONGO_CONNECTION_STRING: mongodb://psycarlo:bitcoinislove@mongo:27017
+      MONGO_DATABASE: psytests
+      WAIT_HOSTS: mongo:27017, mysql:3306
+    depends_on:
+      - mongo
+      - mysql

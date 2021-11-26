@@ -15,6 +15,10 @@
 
 0. Clone the repository
 
+```
+git clone https://github.com/Psycarlo/node-ts-mysql-mongodb-jest.git
+```
+
 1. Install the dependencies:
 
 ```
