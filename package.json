@@ -8,15 +8,13 @@
   "license": "MIT",
   "scripts": {
     "start": "ts-node src/server.ts",
+    "build:docker-test": "docker build -t psytests .",
     "dev": "npm-watch start",
     "lint": "eslint --ext .ts src",
     "lint:fix": "eslint --ext .ts src --fix",
     "format": "prettier --config .prettierrc.js --check ./src/**/*.ts",
     "format:fix": "prettier --config .prettierrc.js --write ./src/**/*.ts",
-    "test": "jest src",
-    "test:watch": "jest src --watch",
-    "test:coverage": "jest src --coverage",
-    "test:fast": "jest src --maxWorkers=50%",
+    "test": "npm run build:docker-test && docker-compose up --build --abort-on-container-exit",
     "test:ci": "jest src --runInBand"
   },
   "watch": {

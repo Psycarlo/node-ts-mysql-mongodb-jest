@@ -15,8 +15,13 @@
 
 0. Clone the repository
 
-TODO: .env files
-TODO: npm install
+1. Install the dependencies:
+
+```
+npm install
+```
+
+2. TODO: .env files
 
 ### Run
 
@@ -40,26 +45,6 @@ Run tests:
 npm test
 ```
 
-Run and watch tests:
-
-```
-npm run test:watch
-```
-
-Run tests and output a coverage folder:
-
-```
-npm run test:coverage
-```
-
-Run tests for ci (jest workers disabled):
-
-```
-npm run test:ci
-```
-
-TODO: Run Integration tests
-
 Note: Use the AAA Pattern - Arrange, Act, Assert when testing
 
 ### Lint & Format
@@ -79,11 +64,11 @@ npm run lint:fix
 To check for formatting warnings and errors:
 
 ```
-npm run `format`
+npm run format
 ```
 
 Try to fix those:
 
 ```
-npm run `format:fix`
+npm run format:fix
 ```
