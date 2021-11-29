@@ -1,0 +1,22 @@
+// Require Rest Client VSC Extension
+
+// Good
+POST http://localhost:8080/api/user
+Content-Type: application/json
+
+{
+  "username": "Psycarlo",
+  "email": "psycarlo1@gmail.com",
+  "hasBitcoin": true
+}
+
+###
+
+// Error - argument missing
+POST http://localhost:8080/api/user
+Content-Type: application/json
+
+{
+  "username": "Psycarlo",
+  "email": "psycarlo1@gmail.com"
+}

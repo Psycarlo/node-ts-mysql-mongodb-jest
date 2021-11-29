@@ -1,0 +1,1557 @@
+import Stripe from 'stripe'
+import { Request, Response } from '../expressTypes'
+import { Request as ExpressRequest, Response as ExpressResponse } from 'express'
+import db from '../lib/v3Database'
+import stripe from '../lib/stripe'
+import {
+  attachZingleLabel,
+  createZingleContactWithPhone,
+  createZingleContactWithInfo,
+  findZingleContactByPhone
+} from '../lib/zingle'
+import {
+  Pagination,
+  paginationFromReq,
+  paginationQueryStrings
+} from '../lib/pagination'
+import activityLog from '../lib/activityLog'
+import mode from '../lib/mode'
+import subscription from './subscription'
+import {
+  User,
+  Address,
+  PhoneNumber,
+  Email,
+  Affiliation,
+  Subscription,
+  Vendor
+} from '../types'
+import {
+  boolStrToBool,
+  generateAccToken,
+  keysMissingInObject
+} from '../lib/object_utils'
+import { handleSqlError } from '../lib/errorHandling'
+import { fetchMessageTemplate } from '../lib/template_utils'
+import { createMessage } from '../lib/outboundMessageUtils'
+
+interface CreateUserBody {
+  phoneNumber: string
+  vendorId?: number
+}
+
+const serviceChannelValue = process.env.ZINGLE_SENDER || ''
+const stylustVendorId = Number(process.env.STYLUST_VENDOR_ID)
+
+const vendorExists = async (vendorId: number) => {
+  const [vendor] = await db.query(
+    `
+      SELECT id, name
+      FROM vendors
+      WHERE id = ?
+    `,
+    [vendorId]
+  )
+
+  return !!vendor
+}
+
+export const fetchOptedInByUserId = async (
+  userId: number
+): Promise<
+  | {
+      optedInAt?: string
+      optedOutAt?: string
+      ageGated18At?: string
+      ageGated21At?: string
+    }
+  | undefined
+> => {
+  const [optIn] = await db.query(
+    `
+    SELECT oi.optedInAt, oi.optedOutAt, oi.ageGated18At, oi.ageGated21At
+    FROM optIns oi
+    LEFT JOIN serviceChannels sc on oi.serviceChannelId = sc.id
+    WHERE oi.userId = ? AND sc.value = ?
+  `,
+    [userId, serviceChannelValue]
+  )
+
+  return optIn
+}
+
+const fetchUserByZingleId = async (zingleId: string) => {
+  const [user] = await db.query(
+    `
+    SELECT u.id, u.firstName, u.lastName, u.responder, pn.zingleId
+    FROM users u
+    INNER JOIN phoneNumbers pn on pn.userId = u.id
+    WHERE zingleId = ?
+  `,
+    [zingleId]
+  )
+  if (!user) return null
+
+  const [extendedUser, optedIn] = await Promise.all([
+    extendUser(user, { affiliations: true }),
+    fetchOptedInByUserId(user.id)
+  ])
+
+  return {
+    ...extendedUser,
+    responder: db.convertBitToBool(user.responder),
+    ...optedIn
+  } as User
+}
+
+const createOptInEntry = async (userId: number) => {
+  await db.query(
+    `
+      INSERT IGNORE INTO optIns (userId, serviceChannelId)
+      VALUES (
+        ?,
+        (SELECT id FROM serviceChannels WHERE value = ?)
+      )
+    `,
+    [userId, serviceChannelValue]
+  )
+}
+
+const affiliateUser = async (
+  userId: number,
+  vendorId: number
+): Promise<Affiliation> => {
+  await db.query(
+    `
+        INSERT IGNORE INTO affiliations
+          (userId, vendorId, isPrimary)
+        VALUES
+          (?, ?, (
+            SELECT * FROM (
+              SELECT IF(count(*) > 0, 0, 1)
+              FROM affiliations
+              WHERE userId = ? AND isPrimary = 1
+            ) x
+          ))
+      `,
+    [userId, vendorId, userId]
+  )
+
+  const [[{ zingleId }], [vendor], optIn] = await Promise.all([
+    db.query('SELECT zingleId FROM phoneNumbers WHERE userId = ?', [userId]),
+    db.query(
+      'SELECT zingleTagId, name, minAge, requiresTwoStepOptIn FROM vendors WHERE id = ?',
+      [vendorId]
+    ),
+    fetchOptedInByUserId(userId)
+  ])
+
+  if (zingleId && vendor.zingleTagId) {
+    await attachZingleLabel(zingleId, vendor.zingleTagId)
+  }
+
+  let isActive = !!optIn?.optedInAt && !optIn?.optedOutAt
+  if (optIn && db.convertBitToBool(vendor.requiresTwoStepOptIn)) {
+    isActive =
+      isActive &&
+      !!(vendor.minAge === '18' ? optIn.ageGated18At : optIn.ageGated21At)
+  }
+
+  return {
+    vendorId,
+    name: vendor.name,
+    minAge: vendor.minAge,
+    requiresTwoStepOptIn: db.convertBitToBool(vendor.requiresTwoStepOptIn),
+    isActive
+  }
+}
+
+const insertUser = async (
+  phoneNumber: string,
+  zingleId: string,
+  vendorId?: number,
+  info?: {
+    firstName: string
+    lastName: string
+    stripeId: string
+    email: string
+  }
+) => {
+  let id
+  if (info) {
+    id = await db.insertReturnId(
+      `
+        INSERT INTO users (firstName, lastName, stripeId, enrolledVia)
+        VALUES (?, ?, ?, 'website')
+      `,
+      [info.firstName, info.lastName, info.stripeId]
+    )
+
+    await db.query(
+      `
+      INSERT INTO emails (
+        userId,
+        value,
+        isPrimary
+      ) VALUES (
+        ?,
+        ?,
+        1
+      )
+      `,
+      [id, info.email]
+    )
+  } else {
+    id = await db.insertReturnId(
+      `
+      INSERT INTO users (enrolledVia)
+      VALUES ('text')
+    `,
+      []
+    )
+  }
+
+  await db.query(
+    `
+      INSERT INTO phoneNumbers (userId, phoneNumber, zingleId)
+      VALUES (?, ?, ?)
+    `,
+    [id, phoneNumber, zingleId]
+  )
+
+  await createOptInEntry(id)
+
+  if (vendorId) {
+    await affiliateUser(id, vendorId)
+  }
+
+  return id
+}
+
+const create = async (req: Request, res: Response): Promise<void> => {
+  const { phoneNumber, vendorId } = req.body as CreateUserBody
+  if (!phoneNumber) {
+    console.log('cannot create user without phoneNumber')
+    res.status(400).send({
+      error: 'invalid request. cannot create user without phoneNumber'
+    })
+    return
+  }
+
+  if (!!vendorId && !(await vendorExists(vendorId))) {
+    console.log(`invalid vendorId ${vendorId}`)
+    res.status(400).send({
+      error: `invalid request. vendor with id ${vendorId} does not exist`
+    })
+    return
+  }
+
+  let zingleId: string | undefined
+  try {
+    const contact = await createZingleContactWithPhone(phoneNumber)
+    zingleId = contact?.id
+    if (!zingleId) {
+      console.error(
+        `failed to fetch or create zingle contact for phone ${phoneNumber}`
+      )
+      res.status(500).send('unable to create contact')
+      return
+    }
+
+    // if user already exists, try to affiliate then return it
+    let user = await fetchUserByZingleId(zingleId)
+    if (user && user.id) {
+      console.log(`user with phone number ${phoneNumber} already exists`)
+
+      await createOptInEntry(user.id)
+
+      if (
+        vendorId &&
+        !user.affiliations?.find((a) => a.vendorId === vendorId)
+      ) {
+        console.log(`affiliate with vendorId ${vendorId}`)
+        const newAffiliation = {
+          ...(await affiliateUser(user.id, vendorId)),
+          isNew: true
+        }
+        user = {
+          ...user,
+          affiliations: [...(user.affiliations || []), newAffiliation]
+        }
+      }
+      res.status(200).send(user)
+      return
+    }
+  } catch (e) {
+    console.error('zingle contact creation failed', e)
+    res.status(500).send('unable to create contact')
+    return
+  }
+
+  try {
+    const id = await insertUser(phoneNumber, zingleId, vendorId)
+
+    console.log(
+      `successfully created new user ${id} with phoneNumber ${phoneNumber}`
+    )
+    res.status(201).send({
+      id,
+      responder: false,
+      zingleId,
+      affiliations: [{ vendorId }]
+    })
+  } catch (e) {
+    console.error('error creating user', e)
+    res.status(500).send('something went wrong')
+  }
+}
+
+export interface ExtendOptions {
+  addresses?: boolean
+  phoneNumbers?: boolean
+  emails?: boolean
+  affiliations?: boolean
+  labels?: boolean
+}
+
+export const optionsFromRequest = (req: Request): ExtendOptions => ({
+  addresses: boolStrToBool(req.query.addresses),
+  phoneNumbers: boolStrToBool(req.query.phoneNumbers),
+  emails: boolStrToBool(req.query.emails),
+  affiliations: boolStrToBool(req.query.affiliations),
+  labels: boolStrToBool(req.query.labels)
+})
+
+interface Filters {
+  zingleId?: string
+  labelIds?: number[] // comes as string split by comma (,)
+}
+
+const filtersFromRequest = (req: Request): Filters => {
+  const filters: Filters = {}
+
+  if (req.query.zingleId) {
+    filters.zingleId = req.query.zingleId as string
+  }
+
+  if (req.query.labelIds) {
+    filters.labelIds = (req.query.labelIds as string)
+      .split(',')
+      .map((id) => Number(id.trim()))
+  }
+
+  return filters
+}
+
+const fetchUsers = async (
+  pagination: Pagination,
+  options: ExtendOptions,
+  queryConditions: string
+): Promise<User[]> => {
+  const { order, limit } = paginationQueryStrings(pagination)
+
+  const users = (await db.query(
+    `
+      SELECT
+        u.id,
+        u.firstName,
+        u.lastName,
+        u.notes,
+        u.stripeId,
+        u.isVip,
+        u.assignedToId,
+        u.last4,
+        MAX(lastMessagedAt) as latest
+      FROM
+        users u
+      LEFT JOIN
+        phoneNumbers pn
+        ON u.id = pn.userId
+      LEFT JOIN
+        userLabels ul
+        ON u.id = ul.userId
+      ${queryConditions}
+      ORDER BY ${order || 'u.id DESC'}
+      LIMIT ${limit}
+    `,
+    []
+  )) as User[]
+
+  // It is somewhat slow to run this for every user but as we'll
+  // query small pageSizes most of the time is probably fine.
+  const extendedUsers: User[] = []
+  for (const user of users) {
+    extendedUsers.push(await extendUser(user, options))
+  }
+
+  return extendedUsers
+}
+
+export const extendUser = async (
+  user: User,
+  options: ExtendOptions
+): Promise<User> => {
+  if (!user.id) return user
+
+  const [addresses, phoneNumbers, emails, affiliations, labels, subscription] =
+    await Promise.all([
+      options.addresses ? fetchAddressesByUserId(user.id) : undefined,
+      options.phoneNumbers ? fetchPhoneNumbersByUserId(user.id) : undefined,
+      options.emails ? fetchEmailsByUserId(user.id) : undefined,
+      options.affiliations ? fetchAffiliationsByUserId(user.id) : undefined,
+      options.labels ? fetchLabelsByUserId(user.id) : undefined,
+      user.stripeId ? fetchSubscriptionByStripeId(user.stripeId) : undefined
+    ])
+
+  return {
+    ...user,
+    addresses,
+    phoneNumbers,
+    emails,
+    affiliations,
+    labels,
+    subscription
+  }
+}
+
+const fetchAddressesByUserId = async (userId: number) => {
+  const addresses = await db.query(
+    `
+    SELECT
+      id,
+      line1,
+      line2,
+      isPrimary,
+      isShipping,
+      isBilling,
+      city,
+      state,
+      zipcode,
+      zipExtension,
+      nickname
+    FROM
+      addresses
+    WHERE
+      userId = ?
+      AND deletedAt IS NULL
+    ORDER BY isPrimary DESC, updatedAt DESC
+  `,
+    [userId]
+  )
+
+  return addresses.map((address) => ({
+    ...address,
+    isPrimary: db.convertBitToBool(address.isPrimary),
+    isShipping: db.convertBitToBool(address.isShipping),
+    isBilling: db.convertBitToBool(address.isBilling)
+  })) as Address[]
+}
+
+const fetchPhoneNumbersByUserId = async (userId: number) => {
+  const phoneNumbers = await db.query(
+    `
+    SELECT
+      id,
+      phoneNumber,
+      zingleId,
+      lastMessageId,
+      lastMessagedAt,
+      lastMessageDirection,
+      lastMessageBody,
+      conversationIsOpen,
+      isPrimary,
+      readAt
+    FROM
+      phoneNumbers
+    WHERE
+      userId = ?
+  `,
+    [userId]
+  )
+
+  return phoneNumbers.map((p) => ({
+    ...p,
+    conversationIsOpen: db.convertBitToBool(p.conversationIsOpen),
+    isPrimary: db.convertBitToBool(p.isPrimary)
+  })) as PhoneNumber[]
+}
+
+const fetchEmailsByUserId = async (userId: number) => {
+  const emails = await db.query(
+    `
+    SELECT
+      id, value, isPrimary
+    FROM
+      emails
+    WHERE
+      userId = ?
+  `,
+    [userId]
+  )
+
+  return emails.map((email) => ({
+    ...email,
+    isPrimary: db.convertBitToBool(email.isPrimary)
+  })) as Email[]
+}
+
+export const fetchAffiliationsByUserId = async (
+  userId: number
+): Promise<Affiliation[]> => {
+  // fetch affiliations
+  const affiliations = await db.query(
+    `
+    SELECT
+      a.vendorId,
+      a.isPrimary,
+      v.name,
+      v.minAge,
+      v.requiresTwoStepOptIn
+    FROM
+      affiliations a
+    INNER JOIN
+      vendors v ON v.id = a.vendorId
+    WHERE
+      a.userId = ? AND
+      a.deletedAt IS NULL
+  `,
+    [userId, serviceChannelValue]
+  )
+
+  const optIn = await fetchOptedInByUserId(userId)
+
+  // An affiliation is isActive when:
+  // - user has optedInAt timestamp
+  // - if vendor requiresTwoStepOptIn, user needs ageGatedAt timestamp
+  // that matches the vendors minAge
+  return affiliations.map((a) => {
+    let isActive = !!optIn?.optedInAt && !optIn?.optedOutAt
+    if (optIn && a.requiresTwoStepOptIn) {
+      isActive =
+        isActive &&
+        !!(a.minAge === '18' ? optIn.ageGated18At : optIn.ageGated21At)
+    }
+    return {
+      vendorId: a.vendorId,
+      name: a.name,
+      isPrimary: db.convertBitToBool(a.isPrimary),
+      minAge: a.minAge,
+      requiresTwoStepOptIn: db.convertBitToBool(a.requiresTwoStepOptIn),
+      isActive
+    }
+  }) as Affiliation[]
+}
+
+const fetchLabelsByUserId = async (userId: number) => {
+  const labels = (await db.query(
+    `
+      SELECT
+        labelId
+      FROM
+        userLabels
+      WHERE
+        userId = ?
+    `,
+    [userId]
+  )) as { labelId: string }[]
+
+  return labels.map((l) => Number(l.labelId)) as number[]
+}
+
+interface StylustSubscription extends Stripe.Subscription {
+  plan: { nickname: string }
+}
+
+export const fetchSubscriptionByStripeId = async (
+  stripeId: string
+): Promise<Subscription | string | undefined> => {
+  const stylustPlanId = process.env.STRIPE_PLAN_ID
+
+  let sub: StylustSubscription | undefined
+
+  try {
+    const { data } = await stripe.subscriptions.list({
+      customer: stripeId,
+      plan: stylustPlanId
+    })
+
+    if (!data || !data.length) {
+      return
+    }
+
+    sub = data[0] as StylustSubscription
+  } catch (e) {
+    return e.raw.message || 'Unknown stripe error'
+  }
+
+  if (!sub) {
+    return
+  }
+
+  const subscription = {
+    id: sub.id,
+    start: sub.start_date,
+    currentPeriodStart: sub.current_period_start,
+    currentPeriodEnd: sub.current_period_end,
+    trialStart: sub.trial_start,
+    trialEnd: sub.trial_end,
+    plan: sub.plan.nickname
+  }
+
+  return subscription as Subscription
+}
+
+const getMany = async (req: Request, res: Response): Promise<void> => {
+  const options = optionsFromRequest(req)
+  const filters = filtersFromRequest(req)
+
+  let filterStr = ''
+  if (Object.keys(filters).length) {
+    filterStr += 'WHERE '
+
+    if (filters.zingleId) {
+      filterStr += `pn.zingleId = '${filters.zingleId}'`
+    }
+
+    const labelIds = filters.labelIds || []
+    if (labelIds.length) {
+      if (filters.zingleId) {
+        filterStr += ' AND '
+      }
+
+      labelIds.forEach((id, i) => {
+        if (i !== 0 && i !== labelIds.length - 1) {
+          filterStr += ' OR '
+        }
+        filterStr += `ul.labelId = ${id}`
+      })
+    }
+  }
+
+  const queryConditions = `
+    ${filterStr}
+    GROUP BY u.id
+  `
+
+  try {
+    const pagination = await paginationFromReq(
+      req,
+      `
+        SELECT
+          count(*) as count
+        FROM
+          (
+            SELECT
+              u.id
+            FROM
+              users u
+            LEFT JOIN
+              phoneNumbers pn
+              ON u.id = pn.userId
+            LEFT JOIN
+              userLabels ul
+              ON u.id = ul.userId
+            ${queryConditions}
+          ) x
+      `
+    )
+    const users = await fetchUsers(pagination, options, queryConditions)
+
+    res.status(200).send({ users, pagination })
+  } catch (e) {
+    console.error('error fetching user', e)
+    res.status(500).send('something went wrong')
+  }
+}
+
+export const fetchUser = async (id: number): Promise<User> => {
+  const [user] = await db.query(
+    `
+    SELECT
+      u.id,
+      u.firstName,
+      u.lastName,
+      u.notes,
+      u.stripeId,
+      u.isVip,
+      u.assignedToId,
+      u.last4,
+      oi.optedInAt,
+      oi.optedOutAt,
+      oi.ageGated18At,
+      oi.ageGated21At,
+      oi.ageGateFailedAt
+    FROM
+      users u
+    LEFT JOIN
+      (
+        SELECT * FROM optIns o
+        JOIN serviceChannels sc on o.serviceChannelId = sc.id
+        WHERE value = ?
+      ) oi ON u.id = oi.userId
+    WHERE
+      u.id = ?
+  `,
+    [serviceChannelValue, id]
+  )
+  user.isVip = db.convertBitToBool(user.isVip)
+
+  return user as User
+}
+
+const getOne = async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id)
+  if (!id) {
+    res.status(400).send({ error: 'invalid request' })
+    return
+  }
+
+  const options = optionsFromRequest(req)
+
+  try {
+    const user = await fetchUser(id)
+
+    if (!user) {
+      res.status(404).send(`user with id ${id} not found`)
+      return
+    }
+
+    const extendedUser = await extendUser(user, options)
+
+    console.log(`successfully retrieved user ${id}`)
+    res.status(200).send({ user: extendedUser })
+  } catch (e) {
+    console.error('error fetching user', e)
+    res.status(500).send('something went wrong')
+  }
+}
+
+const patchUserFields = [
+  'firstName',
+  'lastName',
+  'notes',
+  'isVip',
+  'stripeId',
+  'last4'
+]
+
+// patch user basic info
+const patchUser = async (id: number, user: User): Promise<void> => {
+  const { columnsStr, values } = db.getUpdateDataFromObject(
+    user,
+    patchUserFields
+  )
+
+  // nothing to update
+  if (!columnsStr) {
+    return
+  }
+
+  await db.query(
+    `
+    UPDATE users
+    SET
+      ${columnsStr}
+    WHERE
+      id = ?
+  `,
+    [...values, id]
+  )
+}
+
+const updateAddressFields = [
+  'line1',
+  'line2',
+  'isPrimary',
+  'isShipping',
+  'isBilling',
+  'city',
+  'state',
+  'zipcode',
+  'zipExtension',
+  'nickname'
+]
+const insertAddressFields = [...updateAddressFields, 'userId']
+
+const upsertAddressesByUserId = async (
+  userId: number,
+  addresses?: (Address & { action: 'add' | 'edit' | 'delete' })[]
+): Promise<void> => {
+  if (!addresses) {
+    return
+  }
+  for (const a of addresses) {
+    if (a.isPrimary) {
+      await db.query(
+        `
+          UPDATE addresses
+          SET isPrimary = false
+          WHERE userId = ?
+        `,
+        [userId]
+      )
+    }
+    if (a.id) {
+      const { columnsStr, values } = db.getUpdateDataFromObject(
+        a,
+        updateAddressFields
+      )
+      await db.query(
+        `
+          UPDATE addresses
+          SET
+            ${columnsStr}
+          WHERE
+            id = ?
+        `,
+        [...values, a.id]
+      )
+      if (a.action === 'delete') {
+        await db.query(
+          `UPDATE
+            addresses
+          SET
+            deletedAt = ?
+          WHERE
+            id = ?`,
+          [new Date(), a.id]
+        )
+      }
+    } else {
+      const { columnsStr, valuesStr, values } = db.getInsertDataFromObject(
+        { ...a, userId },
+        insertAddressFields
+      )
+      await db.query(
+        `
+          INSERT INTO
+            addresses ${columnsStr}
+          VALUES
+            ${valuesStr}
+          `,
+        values
+      )
+    }
+  }
+}
+
+const updateEmailFields = ['value']
+const insertEmailFields = [...updateEmailFields, 'userId']
+
+const upsertEmailsByUserId = async (
+  userId: number,
+  emails: Email[] | undefined
+): Promise<Email[]> => {
+  if (!emails) {
+    return []
+  }
+
+  const skippedEmails: Email[] = []
+
+  for (const e of emails) {
+    if (e.id) {
+      const { columnsStr, values } = db.getUpdateDataFromObject(
+        e,
+        updateEmailFields
+      )
+      await db.query(
+        `
+          UPDATE emails
+          SET
+            ${columnsStr}
+          WHERE
+            id = ?
+        `,
+        [...values, e.id]
+      )
+    } else {
+      if (!e.value) {
+        // skip if mandatory fields are missing
+        skippedEmails.push(e)
+      } else {
+        const { columnsStr, valuesStr, values } = db.getInsertDataFromObject(
+          { ...e, userId },
+          insertEmailFields
+        )
+        await db.query(
+          `
+          INSERT INTO
+            emails ${columnsStr}
+          VALUES
+            ${valuesStr}
+          `,
+          values
+        )
+      }
+    }
+  }
+
+  return skippedEmails
+}
+
+const upsertAffiliations = async (
+  userId: number,
+  affiliations: Affiliation[] | undefined
+): Promise<Affiliation[]> => {
+  if (!affiliations) {
+    return []
+  }
+
+  const skippedAffiliations: Affiliation[] = []
+
+  for (const a of affiliations) {
+    if (!a.vendorId) {
+      // skip vendor id is not provided
+      skippedAffiliations.push(a)
+    } else {
+      await affiliateUser(userId, a.vendorId)
+    }
+  }
+
+  return skippedAffiliations
+}
+
+const getAddressesErrors = (
+  addresses: (Address & {
+    action: 'add' | 'edit' | 'delete'
+  })[],
+  existingAddresses: Array<Pick<Address, 'id' | 'isPrimary'> | undefined>
+) => {
+  interface AddressError {
+    isPrimary?: string
+    line1?: string
+    city?: string
+    state?: string
+    zipcode?: string
+    isShipping?: string
+    isBilling?: string
+    action?: string
+  }
+  const errors: AddressError[] = []
+
+  const existingPrimaryAddress = existingAddresses.find(
+    (existingAddress) => existingAddress?.isPrimary
+  )
+  const edittedPrimaryAddress = addresses.find(
+    (address) => address.id === existingPrimaryAddress?.id
+  )
+  if (edittedPrimaryAddress && !edittedPrimaryAddress.isPrimary) {
+    errors.push({ isPrimary: 'You must have a primary address.' })
+  }
+
+  addresses.forEach((address) => {
+    const error: AddressError = {}
+    if (typeof address.isPrimary === 'undefined') {
+      error.isPrimary = 'isPrimary is required.'
+    }
+    if (address.action === 'delete' && address.isPrimary) {
+      error.action = 'You cannot delete your primary address.'
+    }
+    if (
+      (!existingAddresses || !existingAddresses?.length) &&
+      !address.isPrimary
+    ) {
+      error.isPrimary = 'Your first address must be set as primary.'
+    }
+    if (!address.line1?.trim()) {
+      error.line1 = 'Line 1 is required.'
+    }
+    if (!address.city?.trim()) {
+      error.city = 'City is required.'
+    }
+    if (!address.state?.trim()) {
+      error.state = 'State is required.'
+    }
+    if (!address.zipcode?.toString().trim()) {
+      error.zipcode = 'Zip Code is required.'
+    }
+    if (typeof address.isShipping === 'undefined') {
+      error.isShipping = 'isShipping is required.'
+    }
+    if (typeof address.isBilling === 'undefined') {
+      error.isBilling = 'isBilling is required.'
+    }
+    if (address.action === 'add' && address.id) {
+      error.action = 'New address cannot have an id.'
+    }
+    if (address.action === 'edit' && !address.id) {
+      error.action = 'An address id is needed in order to edit one.'
+    }
+    errors.push(error)
+  })
+
+  return errors
+}
+
+const patchOne = async (
+  req: ExpressRequest<{ id?: string }, unknown, User | undefined>,
+  res: ExpressResponse
+): Promise<void> => {
+  const id = Number(req.params.id)
+  if (!id) {
+    res.status(400).send({ error: 'invalid request' })
+    return
+  }
+
+  const extendedUser = req.body
+  if (!extendedUser || !Object.keys(extendedUser).length) {
+    console.log('nothing to update')
+    res.status(304).send({ message: 'nothing to update' })
+    return
+  }
+
+  // todo: validate the other cases (emails and affiliations) and clean not needed consecutive validations
+  const addresses = extendedUser.addresses?.filter(Boolean) as
+    | (Address & {
+        action: 'add' | 'edit' | 'delete'
+      })[]
+    | undefined
+  if (addresses) {
+    const existingAddresses = (await db.query(
+      'SELECT id, isPrimary FROM addresses WHERE userId = ? AND deletedAt IS NULL',
+      [id]
+    )) as Pick<Address, 'id' | 'isPrimary'>[] | undefined[]
+    const addressesErrors = getAddressesErrors(addresses, existingAddresses)
+    if (
+      addressesErrors.some((addressErrors) =>
+        Object.values(addressErrors).some((error) => error)
+      )
+    ) {
+      console.warn('Something failed on addresses update.')
+      res.status(400).send({ addressesErrors })
+      return
+    }
+  }
+
+  try {
+    const [, , skippedEmails, skippedAffiliations] = await Promise.all([
+      patchUser(id, extendedUser),
+      upsertAddressesByUserId(id, addresses),
+      upsertEmailsByUserId(id, extendedUser.emails),
+      upsertAffiliations(id, extendedUser.affiliations)
+    ])
+
+    console.log(`user ${id} updated successfully`)
+    if (skippedEmails.length || skippedAffiliations.length) {
+      console.warn(
+        'some objects had missing fields',
+        skippedEmails,
+        skippedAffiliations
+      )
+      res.status(200).send({
+        skippedEmails,
+        skippedAffiliations,
+        message: 'Some objects had missing fields'
+      })
+      return
+    }
+
+    const updatedUser = await fetchUser(id)
+    const updatedExtendedUser = await extendUser(updatedUser, {
+      addresses: true,
+      affiliations: true,
+      emails: true,
+      phoneNumbers: true
+    })
+    res.status(200).send(updatedExtendedUser)
+  } catch (e) {
+    console.error('error fetching user', e)
+    res.status(500).send('something went wrong')
+  }
+}
+
+const assign = async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id)
+  if (!id) {
+    res.status(400).send({ error: 'invalid request' })
+    return
+  }
+
+  // if staffId is null, user gets unassigned
+  const staffId = req.body.staffId || null
+  const currentStaffId = req.staffId
+
+  if (staffId) {
+    try {
+      const [staff] = await db.query('SELECT id FROM staff WHERE id = ?', [
+        staffId
+      ])
+
+      if (!staff) {
+        res.status(400).send({ error: 'Unknown staff id' })
+        return
+      }
+    } catch (e) {
+      console.log('error validating staffId')
+      const { sts, returnErr } = handleSqlError(e)
+      res.status(sts).send(returnErr)
+    }
+  }
+
+  try {
+    const [{ previousAssignedId }] = await db.query(
+      `
+        SELECT assignedToId as previousAssignedId
+        FROM users
+        WHERE id = ?
+      `,
+      [id]
+    )
+
+    if (previousAssignedId && previousAssignedId !== currentStaffId) {
+      res.status(401).send({ error: 'User is already assign to a DA' })
+      return
+    }
+
+    await db.query(
+      `
+        UPDATE users
+        SET assignedToId = ?
+        WHERE id = ?
+      `,
+      [staffId, id]
+    )
+    if (staffId) {
+      console.log(`successfully assigned user ${id} to staff ${staffId}`)
+    } else {
+      console.log(`successfully unassigned user ${id}`)
+    }
+
+    await activityLog.save({
+      userId: id,
+      triggeredById: req.staffId,
+      assign: {
+        fromId: previousAssignedId,
+        toId: staffId
+      }
+    })
+
+    res.sendStatus(204)
+  } catch (e) {
+    console.error(`error assigning user ${id} to staff ${staffId}`, e)
+    const { sts, returnErr } = handleSqlError(e)
+    res.status(sts).send(returnErr)
+  }
+}
+
+const userPhone = async (userId: number) => {
+  const [zingleUser] = await db.query(
+    `
+      SELECT
+        phoneNumber
+      FROM
+        phoneNumbers
+      WHERE
+        userId = ?
+    `,
+    [userId]
+  )
+
+  if (zingleUser) {
+    return zingleUser.phoneNumber
+  }
+
+  return null
+}
+
+type AccUpdateType = 'full' | 'contact' | 'payment' | 'address'
+
+const accUpdateTemplateName = (type: AccUpdateType) => {
+  switch (type) {
+    case 'contact':
+      return 'contactInfo'
+    case 'payment':
+      return 'paymentInfo'
+    case 'address':
+      return 'addressInfo'
+    default:
+      return 'fullAccountInfo'
+  }
+}
+
+// Must match required strings in cc-form
+const ccFormMode = (type: AccUpdateType) => {
+  switch (type) {
+    case 'contact':
+      return 'info'
+    case 'payment':
+      return 'payment'
+    case 'address':
+      return 'address'
+    default:
+      return 'all'
+  }
+}
+
+const accUpdate = async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id)
+  if (!id) {
+    res.status(400).send({ error: 'invalid request' })
+    return
+  }
+
+  const type = req.params.type as AccUpdateType
+  if (!type || !['full', 'contact', 'payment', 'address'].includes(type)) {
+    res.status(400).send({ error: 'invalid request' })
+    return
+  }
+  const phoneNumber = await userPhone(id)
+  if (!phoneNumber) {
+    const errmsg = 'error fetching contact: no user contact info found'
+    console.error(errmsg)
+    res.status(404).send(errmsg)
+    return
+  }
+
+  try {
+    const token = await generateAccToken()
+    await db.query(
+      `
+      REPLACE INTO accountTokens (userId, token, expiresAt)
+      VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL 1 DAY)
+    `,
+      [id, token]
+    )
+
+    const primaryAffiliation = await fetchAffiliationsByUserId(id).then(
+      (affs) => affs.find((a) => a.isPrimary)
+    )
+    const vendorId = primaryAffiliation?.vendorId || -1
+
+    const message = await fetchMessageTemplate(
+      vendorId,
+      accUpdateTemplateName(type),
+      {
+        formURL: `${process.env.CC_FORM_URL}?token=${token}&mode=${ccFormMode(
+          type
+        )}`
+      }
+    )
+
+    await createMessage(phoneNumber, message)
+
+    console.log(`successfully sent contact update message to user: ${id}`)
+    res.sendStatus(204)
+  } catch (e) {
+    console.error(`error sending contact update message to user ${id}`, e)
+    const { sts, returnErr } = handleSqlError(e)
+    res.status(sts).send(returnErr)
+  }
+}
+
+const memberFromBody = (member: Member): Member | null => {
+  if (!member) {
+    return null
+  }
+
+  const requiredParams = keysMissingInObject(
+    ['firstName', 'lastName', 'email', 'phoneNumber', 'source'],
+    member
+  )
+
+  if (requiredParams.length) {
+    console.error(`member fields missing ${requiredParams}`)
+    return null
+  }
+
+  return member
+}
+
+interface Member {
+  firstName: string
+  lastName: string
+  email: string
+  phoneNumber: string
+  source: { id: string }
+}
+
+const signup = async (req: Request, res: Response): Promise<void> => {
+  const member = memberFromBody(req.body.member)
+
+  if (!member) {
+    console.log('invalid request. missing info')
+    res.status(400).send({
+      error: 'invalid request. missing info'
+    })
+    return
+  }
+
+  if (member.phoneNumber.length === 10) {
+    member.phoneNumber = '+1' + member.phoneNumber
+  }
+
+  try {
+    if (await db.existsIn('phoneNumber', member.phoneNumber, 'phoneNumbers')) {
+      console.log('phone number already in use')
+      res.status(400).send({
+        error: 'phone number already in use'
+      })
+      return
+    }
+
+    if (await db.existsIn('value', member.email, 'emails')) {
+      console.log('email already in use')
+      res.status(400).send({
+        error: 'email already in use'
+      })
+      return
+    }
+  } catch (err) {
+    console.log('err: ', err)
+    res.status(400).send({
+      error: 'error while checking phone and email in database'
+    })
+    return
+  }
+
+  let stylustVendor: Vendor | undefined
+  try {
+    const [vendor] = (await db.query(
+      `
+      SELECT id, name, minAge, tosUrl
+      FROM vendors
+      WHERE id = ?
+      `,
+      [stylustVendorId]
+    )) as Vendor[]
+    stylustVendor = vendor
+  } catch (e) {
+    console.error(`error fetching vendor ${stylustVendorId}`, e)
+    const { sts, returnErr } = handleSqlError(e)
+    res.status(sts).send(returnErr)
+    return
+  }
+
+  if (!stylustVendor) {
+    console.log('could not find stylust vendor')
+    res.status(400).send({
+      error: 'could not find stylust vendor'
+    })
+    return
+  }
+
+  let zingleContact = await findZingleContactByPhone(member.phoneNumber)
+
+  if (!zingleContact) {
+    try {
+      const newZingleContact = await createZingleContactWithInfo(member)
+
+      if (!newZingleContact || !newZingleContact.id) {
+        console.log('could not create new zingle account')
+        res.status(400).send({
+          error: 'could not create new zingle account'
+        })
+        return
+      }
+
+      zingleContact = newZingleContact
+    } catch (err) {
+      console.log('err: ', err)
+      res.status(400).send({
+        error: 'error creating new zongle account'
+      })
+      return
+    }
+  }
+
+  let stripeCustomer
+  try {
+    const newStripeCustomer = await stripe.customers.create({
+      source: member.source.id,
+      email: member.email,
+      phone: `+${member.phoneNumber}`
+    })
+
+    if (!newStripeCustomer) {
+      console.log('could not create stripe customer')
+      res.status(400).send({
+        error: 'could not create stripe customer'
+      })
+      return
+    }
+
+    stripeCustomer = newStripeCustomer
+  } catch (err) {
+    console.log('error creating stripe account  : ', err)
+    res.status(400).send({
+      error: 'error creating stripe customer'
+    })
+    return
+  }
+
+  try {
+    const userInfo = {
+      firstName: member.firstName,
+      lastName: member.lastName,
+      stripeId: stripeCustomer.id,
+      email: member.email
+    }
+
+    const userId = await insertUser(
+      member.phoneNumber,
+      zingleContact.id,
+      stylustVendorId,
+      userInfo
+    )
+
+    await subscription.createSubscription(userId)
+
+    const welcomeMessage = await fetchMessageTemplate(
+      stylustVendorId,
+      'optIn',
+      {
+        vendorName: stylustVendor.name || 'stylust',
+        minAge: stylustVendor.minAge || '18',
+        tos: stylustVendor.tosUrl || 'https://stylust.com/terms/'
+      }
+    )
+    await createMessage(member.phoneNumber, welcomeMessage)
+    res.sendStatus(201)
+  } catch (err) {
+    console.log('err: ', err)
+    res.status(400).send({
+      error: 'error creating or updating user'
+    })
+  }
+}
+
+type TriggerOptInAction = 'optIn' | 'ageGate' | 'newAffiliation'
+
+const triggerOptIn = async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id)
+  if (!id) {
+    res.status(400).send({ error: 'invalid request' })
+    return
+  }
+
+  const action = req.query.action as TriggerOptInAction
+  if (!action) {
+    res.status(400).send({ error: 'invalid request. action not provided' })
+    return
+  }
+
+  try {
+    const { optedOutAt, affiliations, phoneNumbers } = await extendUser(
+      await fetchUser(id),
+      {
+        affiliations: true,
+        phoneNumbers: true
+      }
+    )
+
+    const primaryPhoneNumber = phoneNumbers?.find((pns) => pns.isPrimary)
+      ?.phoneNumber as string
+
+    if (!affiliations || !affiliations.length) {
+      throw new Error('Customer has no affiliations')
+    }
+
+    if (optedOutAt) {
+      console.log(`user ${id} is optedOut`)
+      res.status(403).send({ message: 'Customer is opted out' })
+      return
+    }
+
+    if (action === 'newAffiliation') {
+      const vendorId = Number(req.query.vendorId)
+      if (!vendorId) {
+        res.status(400).send({ error: 'invalid request. vendor id provided' })
+        return
+      }
+
+      const [{ siteId }] = await db.query(
+        'SELECT siteId FROM vendors WHERE id = ?',
+        [vendorId]
+      )
+
+      if (!siteId) {
+        console.log(`vendor ${vendorId} has no siteId`)
+        res.status(404).send({ message: 'Vendor has no siteId' })
+        return
+      }
+
+      activityLog.save({
+        userId: id,
+        triggeredById: req.staffId,
+        triggerOptIn: { action, vendorId }
+      })
+
+      await mode.enroll(primaryPhoneNumber, siteId)
+
+      console.log(
+        `enroll user ${id} to vendor ${vendorId} request sent to mode API`
+      )
+      res.sendStatus(204)
+      return
+    }
+
+    const inactiveAffiliations = affiliations.filter((a) => !a.isActive)
+    if (!inactiveAffiliations.length) {
+      console.log(`user ${id} is already optedIn`)
+      res.status(403).send({ message: 'Customer is already opted in' })
+      return
+    }
+
+    const primaryAffiliation = affiliations.find((a) => a.isPrimary)
+    if (!primaryAffiliation) {
+      console.log(`user ${id} has no primary affiliation`)
+      res.status(403).send({ message: 'Customer has no primary affiliation' })
+      return
+    }
+
+    const minAge = inactiveAffiliations.find((a) => a.minAge === '21')
+      ? '21'
+      : '18'
+
+    let message = ''
+
+    if (action === 'optIn') {
+      await createOptInEntry(id)
+
+      message = await fetchMessageTemplate(
+        primaryAffiliation?.vendorId,
+        'optIn',
+        {
+          vendorName: primaryAffiliation?.name || '',
+          minAge
+        }
+      )
+
+      console.log(`send optIn message for user ${id}`)
+    }
+
+    if (action === 'ageGate') {
+      // TODO: copy should come from templates
+      message =
+        'Please verify your age by entering your birthdate in the format: MM/DD/YYYY'
+
+      console.log(`send age gate message for user ${id}`)
+    }
+
+    activityLog.save({
+      userId: id,
+      triggeredById: req.staffId,
+      triggerOptIn: { action }
+    })
+
+    await createMessage(primaryPhoneNumber, message)
+    res.sendStatus(204)
+  } catch (e) {
+    console.error(
+      `error triggering opt in with service channel ${serviceChannelValue} for user ${id}`
+    )
+    const { sts, returnErr } = handleSqlError(e)
+    res.status(sts).send(returnErr)
+  }
+}
+
+export default {
+  create,
+  getMany,
+  getOne,
+  patchOne,
+  assign,
+  accUpdate,
+  signup,
+  triggerOptIn
+}

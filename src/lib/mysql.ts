@@ -47,6 +47,8 @@ const query = (query: string, values?: any[]): Promise<Records> => {
   })
 }
 
-export default {
-  query
-}
+export { query }
+
+const mySqlDbAccess = { query }
+
+export default mySqlDbAccess
