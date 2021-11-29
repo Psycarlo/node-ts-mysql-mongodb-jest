@@ -7,14 +7,14 @@
   "author": "Psycarlo <psycarlo1@gmail.com>",
   "license": "MIT",
   "scripts": {
-    "start": "ts-node src/server.ts",
+    "start": "cross-env NODE_ENV=development ts-node src/server.ts",
     "build:docker-test": "docker build -t psytests .",
     "dev": "npm-watch start",
     "lint": "eslint --ext .ts src",
     "lint:fix": "eslint --ext .ts src --fix",
     "format": "prettier --config .prettierrc.js --check ./src/**/*.ts",
     "format:fix": "prettier --config .prettierrc.js --write ./src/**/*.ts",
-    "test": "npm run build:docker-test && docker-compose up --build --abort-on-container-exit",
+    "test": "cross-env NODE_ENV=tests npm run build:docker-test && docker-compose up --build --abort-on-container-exit",
     "test:ci": "jest src --runInBand"
   },
   "watch": {
@@ -40,6 +40,7 @@
     "@types/mysql": "^2.15.19",
     "@typescript-eslint/eslint-plugin": "^5.4.0",
     "@typescript-eslint/parser": "^5.4.0",
+    "cross-env": "^7.0.3",
     "dotenv": "^10.0.0",
     "eslint": "^8.3.0",
     "eslint-config-prettier": "^8.3.0",

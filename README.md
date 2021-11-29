@@ -25,7 +25,26 @@ git clone https://github.com/Psycarlo/node-ts-mysql-mongodb-jest.git
 npm install
 ```
 
-2. TODO: .env files
+2. Add and fill .env.development file based on .env.example
+
+3. Run MySQL and MongoDB
+
+4. Create MySQL Database and Table
+
+```
+CREATE DATABASE <MYSQL_DATABASE>;
+
+USE <MYSQL_DATABASE>;
+
+CREATE TABLE users (
+  id INT PRIMARY KEY NOT NULL AUTO_INCREMENT,
+  username VARCHAR(16) NOT NULL,
+  email VARCHAR(60) NOT NULL
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4;
+```
+
+Note: MYSQL_DATABASE variable available in the .env file
+Tip: You can use MySQL Workbench and run the queries there
 
 ### Run
 

@@ -1,4 +1,24 @@
+import * as dotenv from 'dotenv'
 import mysql from 'mysql'
+
+dotenv.config({ path: `.env.${process.env.NODE_ENV?.trim()}` })
+
+interface OkPacket {
+  fieldCount: number
+  affectedRows: number
+  insertId: number
+  serverStatus: number
+  warningCount: number
+  message: string
+  protocol41: boolean
+  changedRows: number
+}
+
+interface UserRowDataPacket {
+  id: number
+  username: string
+  email: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Records = Record<string, any>[]
@@ -29,7 +49,7 @@ const connect = (): Promise<mysql.PoolConnection> => {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const query = (query: string, values?: any[]): Promise<Records> => {
+const queryInsert = (query: string, values?: any[]): Promise<OkPacket> => {
   return new Promise((resolve, reject) => {
     connect().then((conn) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,8 +67,27 @@ const query = (query: string, values?: any[]): Promise<Records> => {
   })
 }
 
-export { query }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const queryGet = (query: string, values?: any[]): Promise<Records> => {
+  return new Promise((resolve, reject) => {
+    connect().then((conn) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      conn.query(query, values, (err, results: any) => {
+        conn.release()
+        if (err) {
+          const e = new Error()
+          e.name = err.name
+          e.message = err.message
+          reject(e)
+        }
+        resolve(results)
+      })
+    })
+  })
+}
 
-const mySqlDbAccess = { query }
+export { UserRowDataPacket, queryInsert, queryGet }
+
+const mySqlDbAccess = { queryInsert, queryGet }
 
 export default mySqlDbAccess
