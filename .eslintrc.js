@@ -36,6 +36,7 @@ module.exports = {
     'no-console': process.env.NODE_ENV === 'production' ? 'error' : 'off',
     'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off',
     'no-use-before-define': 'off',
-    'no-nested-ternary': 'warn'
+    'no-nested-ternary': 'warn',
+    '@typescript-eslint/no-explicit-any': 'off'
   }
 }

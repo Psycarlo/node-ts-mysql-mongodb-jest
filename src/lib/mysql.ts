@@ -14,7 +14,6 @@ interface OkPacket {
   changedRows: number
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Records = Record<string, any>[]
 
 const database = mysql.createPool({
@@ -42,11 +41,9 @@ const connect = (): Promise<mysql.PoolConnection> => {
   })
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const queryInsert = (query: string, values?: any[]): Promise<OkPacket> => {
   return new Promise((resolve, reject) => {
     connect().then((conn) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       conn.query(query, values, (err, results: any) => {
         conn.release()
         if (err) {
@@ -61,11 +58,9 @@ const queryInsert = (query: string, values?: any[]): Promise<OkPacket> => {
   })
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const queryGet = (query: string, values?: any[]): Promise<Records> => {
   return new Promise((resolve, reject) => {
     connect().then((conn) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       conn.query(query, values, (err, results: any) => {
         conn.release()
         if (err) {
