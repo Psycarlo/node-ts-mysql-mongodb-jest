@@ -41,6 +41,7 @@ const connect = (): Promise<mysql.PoolConnection> => {
   })
 }
 
+// TODO: Refactor queryInsert + queryGet into one?
 const queryInsert = (query: string, values?: any[]): Promise<OkPacket> => {
   return new Promise((resolve, reject) => {
     connect().then((conn) => {
