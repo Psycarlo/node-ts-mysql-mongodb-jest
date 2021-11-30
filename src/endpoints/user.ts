@@ -1,5 +1,5 @@
 import { Request, Response } from 'express'
-import mySqlDbAccess, { UserRowDataPacket } from '../lib/mysql'
+import mySqlDbAccess from '../lib/mysql'
 import mongoDbAccess, { User } from '../lib/mongo'
 
 interface CreateUserBody {
@@ -35,7 +35,6 @@ const getUserMySQL = async (id: number) => {
 const getUserInfoMongoDB = async (id: string) => {
   const db = await mongoDbAccess.getDbConnection()
   const result = await db.collection<User>('users').findOne({ _id: id })
-  console.log('Res: ', result)
   return result
 }
 
@@ -71,20 +70,22 @@ const getOne = async (req: Request, res: Response): Promise<void> => {
   try {
     mySqlResult = await getUserMySQL(id)
     mongoResult = await getUserInfoMongoDB(id.toString())
-    console.log(mySqlResult, mongoResult)
   } catch (e) {
     res.status(500).json({
       error: 'Error getting user from the database'
     })
+    return
   }
 
   if (!mongoResult) {
     res.status(500).json({
       error: 'Error fetching user info from the database'
     })
+    return
   }
 
   res.status(200).json({
+    ...mySqlResult,
     hasBitcoin: mongoResult?.hasBitcoin
   })
 }

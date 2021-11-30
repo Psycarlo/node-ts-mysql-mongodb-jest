@@ -14,12 +14,6 @@ interface OkPacket {
   changedRows: number
 }
 
-interface UserRowDataPacket {
-  id: number
-  username: string
-  email: string
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Records = Record<string, any>[]
 
@@ -86,7 +80,7 @@ const queryGet = (query: string, values?: any[]): Promise<Records> => {
   })
 }
 
-export { UserRowDataPacket, queryInsert, queryGet }
+export { queryInsert, queryGet }
 
 const mySqlDbAccess = { queryInsert, queryGet }
 

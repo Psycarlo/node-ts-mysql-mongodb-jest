@@ -24,7 +24,7 @@ Content-Type: application/json
 ### 
 
 // Good
-GET http://localhost:8080/api/user/12
+GET http://localhost:8080/api/user/1
 Content-Type: application/json
 
 {}
