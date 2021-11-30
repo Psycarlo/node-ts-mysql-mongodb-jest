@@ -84,9 +84,10 @@ const getOne = async (req: Request, res: Response): Promise<void> => {
     return
   }
 
-  // TODO: Fix - Must return { id: <>, username: <>, email: <>, hasBitcoin <> }
   res.status(200).json({
-    ...mySqlResult,
+    id: mySqlResult[0].id,
+    username: mySqlResult[0].username,
+    email: mySqlResult[0].email,
     hasBitcoin: mongoResult?.hasBitcoin
   })
 }
