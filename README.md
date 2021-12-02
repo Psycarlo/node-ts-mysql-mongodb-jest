@@ -27,7 +27,7 @@ npm install
 
 2. Add and fill .env.development file based on .env.example
 
-3. Run MySQL and MongoDB
+3. Run MySQL, MongoDB and Docker
 
 4. Create MySQL Database and Table
 
