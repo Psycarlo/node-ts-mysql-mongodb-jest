@@ -76,8 +76,25 @@ const queryGet = (query: string, values?: any[]): Promise<Records> => {
   })
 }
 
-export { queryInsert, queryGet }
+const queryUpdate = (query: string, values?: any[]): Promise<Records> => {
+  return new Promise((resolve, reject) => {
+    connect().then((conn) => {
+      conn.query(query, values, (err, results: any) => {
+        conn.release()
+        if (err) {
+          const e = new Error()
+          e.name = err.name
+          e.message = err.message
+          reject(e)
+        }
+        resolve(results)
+      })
+    })
+  })
+}
 
-const mySqlDbAccess = { queryInsert, queryGet }
+export { queryInsert, queryGet, queryUpdate }
+
+const mySqlDbAccess = { queryInsert, queryGet, queryUpdate }
 
 export default mySqlDbAccess

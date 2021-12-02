@@ -95,3 +95,17 @@ Try to fix those:
 ```
 npm run format:fix
 ```
+
+### Clean
+
+To clean docker containers:
+
+```
+npm run clean:docker:container
+```
+
+To clean docker dangling images:
+
+```
+npm run clean:docker:image
+```

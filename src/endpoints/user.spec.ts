@@ -16,13 +16,13 @@ describe('User Endpoint', () => {
       // Requires username, email, hasBitcoin
       const req1 = mockRequest({
         body: {}
-      })
-      const res1 = mockResponse()
-      await userEndpoint.post(req1, res1)
-      expect(res1.status).toHaveBeenCalledWith(400)
+      }) // Arrange
+      const res1 = mockResponse() // Arrange
+      await userEndpoint.post(req1, res1) // Act
+      expect(res1.status).toHaveBeenCalledWith(400) // Assert
       expect(res1.json).toHaveBeenCalledWith({
         error: 'Invalid Request. Cannot create user without required arguments'
-      })
+      }) // Assert
       // Requires email, hasBitcoin
       const req2 = mockRequest({
         body: { username: 'test' }
@@ -110,7 +110,33 @@ describe('User Endpoint', () => {
       })
     })
   })
+
+  describe('PATCH', () => {
+    it('throws invalid request', async () => {
+      const req1 = mockRequest({
+        params: {},
+        body: {}
+      })
+      const res1 = mockResponse()
+      await userEndpoint.patch(req1, res1)
+      expect(res1.status).toHaveBeenCalledWith(400)
+      expect(res1.json).toHaveBeenCalledWith({
+        error: 'Invalid Request. User id is required'
+      })
+      const req2 = mockRequest({
+        params: { id: 1 },
+        body: {}
+      })
+      const res2 = mockResponse()
+      await userEndpoint.patch(req2, res2)
+      expect(res2.status).toHaveBeenCalledWith(400)
+      expect(res2.json).toHaveBeenCalledWith({
+        error: 'Invalid Request. Cannot update user without required arguments'
+      })
+    })
+  })
 })
+
 // TODO: MySQL Testing
 // TODO: MongoDB Testing
 // TODO: Jest Mocks - Mocks for zingle, stripe, etc.

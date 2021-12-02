@@ -9,6 +9,8 @@
   "scripts": {
     "start": "cross-env NODE_ENV=development ts-node src/server.ts",
     "build:docker-test": "docker build -t psytests .",
+    "clean:docker:container": "docker container prune",
+    "clean:docker:image": "docker image prune",
     "dev": "npm-watch start",
     "lint": "eslint --ext .ts src",
     "lint:fix": "eslint --ext .ts src --fix",
