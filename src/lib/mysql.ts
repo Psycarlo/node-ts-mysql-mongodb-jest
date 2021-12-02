@@ -16,16 +16,20 @@ interface OkPacket {
 
 type Records = Record<string, any>[]
 
+// TODO: Defaults are set for testing.
+// TODO: Create an if for process.env.NODE_ENV === 'tests'
 const database = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'localhost',
+  host: process.env.MYSQL_HOST || 'mysql',
   ...(process.env.MYSQL_PORT
     ? { port: parseInt(process.env.MYSQL_PORT) }
-    : null),
-  ...(process.env.MYSQL_USER ? { user: process.env.MYSQL_USER } : null),
+    : { port: 3306 }),
+  ...(process.env.MYSQL_USER
+    ? { user: process.env.MYSQL_USER }
+    : { user: 'psycarlo' }),
   ...(process.env.MYSQL_PASSWORD
     ? { password: process.env.MYSQL_PASSWORD }
-    : null),
-  database: process.env.MYSQL_DATABASE || 'psycarlo',
+    : { password: 'bitcoinislove' }),
+  database: process.env.MYSQL_DATABASE || 'mysqltests',
   charset: 'utf8mb4',
   timezone: 'UTC'
 })
@@ -41,7 +45,7 @@ const connect = (): Promise<mysql.PoolConnection> => {
   })
 }
 
-// TODO: Refactor queryInsert + queryGet into one?
+// TODO: Refactor queryInsert + queryGet + queryUpdate into one?
 const queryInsert = (query: string, values?: any[]): Promise<OkPacket> => {
   return new Promise((resolve, reject) => {
     connect().then((conn) => {
