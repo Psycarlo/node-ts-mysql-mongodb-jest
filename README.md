@@ -9,6 +9,12 @@
 - (Optional) [MySQL Workbench](https://www.mysql.com/products/workbench/)
 - (Optional) [Postman](https://www.postman.com/downloads/)
 
+### VSC Extensions
+
+- [REST Client](https://marketplace.visualstudio.com/items?itemName=humao.rest-client)
+
+Note: Open the `rest.http` file and use it
+
 ## Getting Started
 
 ### Setup
