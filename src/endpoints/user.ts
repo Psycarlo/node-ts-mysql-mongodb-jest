@@ -74,6 +74,7 @@ const post = async (req: Request, res: Response): Promise<void> => {
     mySqlResult = await insertUserMySQL(username, email)
     await insertUserInfoMongoDB(mySqlResult.insertId.toString(), hasBitcoin)
   } catch (e) {
+    console.log('ERR: ', e)
     res.status(500).json({
       error: 'Error adding user in the database'
     })

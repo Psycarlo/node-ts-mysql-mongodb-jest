@@ -74,6 +74,18 @@ Run tests:
 npm test
 ```
 
+There are more utility scripts in `package.json` like:
+
+```
+npm run clean:docker:container
+npm run clean:docker:image
+npm run clean:docker:volume
+
+npm run compose:docker:down
+
+npm run test:force-recreate
+```
+
 Note: Use the AAA Pattern - Arrange, Act, Assert when testing
 
 ### Lint & Format

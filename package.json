@@ -11,14 +11,17 @@
     "build:docker-test": "docker build -t psytests .",
     "clean:docker:container": "docker container prune",
     "clean:docker:image": "docker image prune",
+    "clean:docker:volume": "docker volume prune",
     "compose:docker": "docker-compose up --build --abort-on-container-exit",
+    "compose:docker:down": "docker-compose down -v",
     "compose:docker:force": "docker-compose up --build --abort-on-container-exit --force-recreate",
     "dev": "npm-watch start",
     "lint": "eslint --ext .ts src",
     "lint:fix": "eslint --ext .ts src --fix",
     "format": "prettier --config .prettierrc.js --check ./src/**/*.ts",
     "format:fix": "prettier --config .prettierrc.js --write ./src/**/*.ts",
-    "test": "cross-env NODE_ENV=tests npm run build:docker-test && npm run compose:docker",
+    "test": "npm run build:docker-test && npm run compose:docker",
+    "test:force-recreate": "npm run build:docker-test && npm run compose:docker:force",
     "test:ci": "jest src --runInBand"
   },
   "watch": {
