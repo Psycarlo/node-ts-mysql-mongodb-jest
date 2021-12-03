@@ -77,6 +77,7 @@ const post = async (req: Request, res: Response): Promise<void> => {
     res.status(500).json({
       error: 'Error adding user in the database'
     })
+    return
   }
   res.status(200).json(mySqlResult?.insertId)
 }
