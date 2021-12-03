@@ -16,20 +16,18 @@ interface OkPacket {
 
 type Records = Record<string, any>[]
 
-// TODO: Defaults are set for testing.
-// TODO: Create an if for process.env.NODE_ENV === 'tests'
 const database = mysql.createPool({
-  host: process.env.MYSQL_HOST || 'mysql',
+  host: process.env.MYSQL_HOST || 'localhost',
   ...(process.env.MYSQL_PORT
     ? { port: parseInt(process.env.MYSQL_PORT) }
     : { port: 3306 }),
   ...(process.env.MYSQL_USER
     ? { user: process.env.MYSQL_USER }
-    : { user: 'psycarlo' }),
+    : { user: 'root' }),
   ...(process.env.MYSQL_PASSWORD
     ? { password: process.env.MYSQL_PASSWORD }
     : { password: 'bitcoinislove' }),
-  database: process.env.MYSQL_DATABASE || 'mysqltests',
+  database: process.env.MYSQL_DATABASE || 'psycarlo',
   charset: 'utf8mb4',
   timezone: 'UTC'
 })

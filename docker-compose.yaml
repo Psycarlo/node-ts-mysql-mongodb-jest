@@ -7,12 +7,10 @@ services:
       driver: none
     environment:
       MYSQL_DATABASE: mysqltests
-      MYSQL_ALLOW_EMPTY_PASSWORD: yes
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_USER: psycarlo
-      MYSQL_PASSWORD: bitcoinislove
+      MYSQL_ALLOW_EMPTY_PASSWORD: 1
+      MYSQL_ROOT_PASSWORD: bitcoinislove
     ports:
-      - '3306:3306'
+      - '3305:3306' # Dev db should be running on port 3306, so for test db let's use 3305
   mongo:
     image: mongo
     logging:
@@ -22,15 +20,20 @@ services:
       MONGO_INITDB_ROOT_USERNAME: psycarlo
       MONGO_INITDB_ROOT_PASSWORD: bitcoinislove
     ports:
-      - '27017:27017'
+      - '27016:27017' # Dev db should be running on port 27017, so for test db let's use 27016
   integration:
     build:
       context: ./
       dockerfile: Dockerfile
     environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: bitcoinislove
+      MYSQL_DATABASE: mysqltests
       MONGO_CONNECTION_STRING: mongodb://psycarlo:bitcoinislove@mongo:27017
-      MONGO_DATABASE: psytests
-      WAIT_HOSTS: mongo:27017, mysql:3306
+      MONGO_DATABASE: mongotests
+      WAIT_HOSTS: mysql:3306, mongo:27017
     depends_on:
-      - mongo
       - mysql
+      - mongo

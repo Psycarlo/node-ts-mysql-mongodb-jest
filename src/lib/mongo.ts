@@ -3,8 +3,8 @@ import { MongoClient, Db } from 'mongodb'
 
 dotenv.config({ path: `.env.${process.env.NODE_ENV?.trim()}` })
 
-const url = process.env.MONGODB_URL
-const dbName = process.env.MONGODB_DBNAME
+const url = process.env.MONGODB_URL || 'mongodb://localhost:27017'
+const dbName = process.env.MONGODB_DBNAME || 'psycarlo'
 
 let connection: MongoClient | null = null
 let db: Db | null = null
