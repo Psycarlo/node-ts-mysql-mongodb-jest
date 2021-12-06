@@ -36,8 +36,8 @@ services:
       MYSQL_USER: root
       MYSQL_PASSWORD: bitcoinislove
       MYSQL_DATABASE: mysqltests
-      MONGO_CONNECTION_STRING: mongodb://psycarlo:bitcoinislove@mongo:27017
-      MONGO_DATABASE: mongotests
+      MONGODB_URL: mongodb://psycarlo:bitcoinislove@mongo:27017
+      MONGODB_DATABASE: mongotests
       WAIT_HOSTS: mysql:3306, mongo:27017
     depends_on:
       - mysql

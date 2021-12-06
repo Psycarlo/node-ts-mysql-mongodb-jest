@@ -29,8 +29,9 @@ const getDbConnection = async (): Promise<Db> => {
   return db
 }
 
-const closeConnection = (): void => {
-  if (connection) connection.close()
+const closeConnection = (): Promise<void> => {
+  if (connection) return connection.close()
+  return new Promise<void>(() => null)
 }
 
 export { User, getDbConnection, closeConnection }
