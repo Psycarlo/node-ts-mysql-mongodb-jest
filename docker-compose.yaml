@@ -9,6 +9,8 @@ services:
       MYSQL_DATABASE: mysqltests
       MYSQL_ALLOW_EMPTY_PASSWORD: 1
       MYSQL_ROOT_PASSWORD: bitcoinislove
+      MYSQL_USER: psycarlo
+      MYSQL_PASSWORD: bitcoinislove
     ports:
       - '3305:3306' # Dev db should be running on port 3306, so for test db let's use 3305
     volumes:
