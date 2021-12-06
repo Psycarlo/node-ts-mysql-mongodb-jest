@@ -1,3 +1,6 @@
+CREATE USER 'my-app-user'@'%' IDENTIFIED BY 'my-app-password';
+GRANT ALL ON *.* TO 'my-app-user'@'%';
+
 CREATE DATABASE [IF NOT EXISTS] mysqltests;
 
 USE mysqltests;
