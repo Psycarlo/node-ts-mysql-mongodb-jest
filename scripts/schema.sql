@@ -1,5 +1,5 @@
-CREATE USER 'psycarlo'@'%' IDENTIFIED WITH mysql_native_password BY 'bitcoinislove';
-GRANT ALL ON *.* TO 'psycarlo'@'%' WITH GRANT OPTION;
+-- CREATE USER 'psycarlo'@'%' IDENTIFIED WITH mysql_native_password BY 'bitcoinislove';
+-- GRANT ALL ON *.* TO 'psycarlo'@'%' WITH GRANT OPTION;
 
 CREATE DATABASE [IF NOT EXISTS] mysqltests;
 

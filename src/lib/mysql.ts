@@ -1,5 +1,5 @@
 import * as dotenv from 'dotenv'
-import mysql from 'mysql'
+import mysql from 'mysql2' // Using mysql2 instead of mysql
 
 dotenv.config({ path: `.env.${process.env.NODE_ENV?.trim()}` })
 
@@ -28,8 +28,8 @@ const database = mysql.createPool({
     ? { password: process.env.MYSQL_PASSWORD }
     : { password: 'bitcoinislove' }),
   database: process.env.MYSQL_DATABASE || 'psycarlo',
-  charset: 'utf8mb4',
-  timezone: 'UTC'
+  charset: 'utf8mb4'
+  // Timezone removed. Might to want to add it again
 })
 
 const connect = (): Promise<mysql.PoolConnection> => {
