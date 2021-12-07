@@ -43,6 +43,10 @@ const connect = (): Promise<mysql.PoolConnection> => {
   })
 }
 
+const close = () => {
+  database.end()
+}
+
 // TODO: Refactor queryInsert + queryGet + queryUpdate into one?
 const queryInsert = (query: string, values?: any[]): Promise<OkPacket> => {
   return new Promise((resolve, reject) => {
@@ -97,6 +101,6 @@ const queryUpdate = (query: string, values?: any[]): Promise<Records> => {
 
 export { queryInsert, queryGet, queryUpdate }
 
-const mySqlDbAccess = { queryInsert, queryGet, queryUpdate }
+const mySqlDbAccess = { close, queryInsert, queryGet, queryUpdate }
 
 export default mySqlDbAccess
