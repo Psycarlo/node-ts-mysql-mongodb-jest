@@ -1,15 +1,18 @@
 import userEndpoint from './user'
 import mockRequest from '../__test__/fixtures/mockRequest'
 import mockResponse from '../__test__/fixtures/mockResponse'
-// import mongoDbAccess from '../lib/mongo'
+
+import mySqlDbAccess from '../lib/mysql'
+import mongoDbAccess from '../lib/mongo'
 
 // Note: MySQL Test DB and MongoDB Test DB must be running on Docker
 
 // Setup and Teardown
 beforeAll(() => null)
-// afterAll(async () => {
-//   await mongoDbAccess.closeConnection()
-// })
+afterAll(async () => {
+  mySqlDbAccess.close()
+  await mongoDbAccess.closeConnection()
+})
 beforeEach(() => null)
 afterEach(() => null)
 
@@ -88,15 +91,15 @@ describe('User Endpoint', () => {
       })
     })
 
-    //   it('should post a user', async () => {
-    //     const req = mockRequest({
-    //       body: { username: 'test', email: 'test@gmail.com', hasBitcoin: true }
-    //     })
-    //     const res = mockResponse()
-    //     await userEndpoint.post(req, res)
-    //     expect(res.status).toHaveBeenCalledWith(200)
-    //     expect(res.json).toHaveBeenCalledWith(1)
-    //   })
+    it('should post a user', async () => {
+      const req = mockRequest({
+        body: { username: 'test', email: 'test@gmail.com', hasBitcoin: true }
+      })
+      const res = mockResponse()
+      await userEndpoint.post(req, res)
+      expect(res.status).toHaveBeenCalledWith(200)
+      expect(res.json).toHaveBeenCalledWith(1)
+    })
   })
 
   describe('GET', () => {
@@ -106,10 +109,48 @@ describe('User Endpoint', () => {
         body: {}
       })
       const res = mockResponse()
-      await userEndpoint.post(req, res)
+      await userEndpoint.getOne(req, res)
       expect(res.status).toHaveBeenCalledWith(400)
       expect(res.json).toHaveBeenCalledWith({
-        error: 'Invalid Request. Cannot create user without required arguments'
+        error: 'Invalid Request. User id is required'
+      })
+    })
+
+    it('should get a user', async () => {
+      // NOTE: This is calling other use case (post user) to test get user
+      // We might not want to do this. Instead just use the dbAccess functions to do this
+      const reqPost = mockRequest({
+        body: { username: 'test', email: 'test@gmail.com', hasBitcoin: true }
+      })
+      const resPost = mockResponse()
+      await userEndpoint.post(reqPost, resPost)
+
+      const insertedId = resPost.json.mock.calls[0][0]
+      const req = mockRequest({
+        params: { id: insertedId },
+        body: {}
+      })
+      const res = mockResponse()
+      await userEndpoint.getOne(req, res)
+      expect(res.status).toHaveBeenCalledWith(200)
+      expect(res.json).toHaveBeenCalledWith({
+        id: insertedId,
+        username: 'test',
+        email: 'test@gmail.com',
+        hasBitcoin: true
+      })
+    })
+
+    it('cannot find a user', async () => {
+      const req = mockRequest({
+        params: { id: '0' },
+        body: {}
+      })
+      const res = mockResponse()
+      await userEndpoint.getOne(req, res)
+      expect(res.status).toHaveBeenCalledWith(500)
+      expect(res.json).toHaveBeenCalledWith({
+        error: 'Error getting user from the database'
       })
     })
   })

@@ -74,7 +74,6 @@ const post = async (req: Request, res: Response): Promise<void> => {
     mySqlResult = await insertUserMySQL(username, email)
     await insertUserInfoMongoDB(mySqlResult.insertId.toString(), hasBitcoin)
   } catch (e) {
-    console.log('ERR: ', e)
     res.status(500).json({
       error: 'Error adding user in the database'
     })
@@ -87,7 +86,7 @@ const getOne = async (req: Request, res: Response): Promise<void> => {
   const id = Number(req.params.id)
   if (!id) {
     res.status(400).json({
-      error: 'Invalid Request. Cannot create user without required arguments'
+      error: 'Invalid Request. User id is required'
     })
     return
   }
