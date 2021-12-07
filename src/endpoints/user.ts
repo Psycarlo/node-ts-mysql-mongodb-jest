@@ -116,6 +116,7 @@ const getOne = async (req: Request, res: Response): Promise<void> => {
   })
 }
 
+// Note: Not fully tested
 const patch = async (req: Request, res: Response): Promise<void> => {
   const id = Number(req.params.id)
 

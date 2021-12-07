@@ -141,16 +141,16 @@ describe('User Endpoint', () => {
       })
     })
 
-    it('cannot find a user', async () => {
+    it('cannot find user info', async () => {
       const req = mockRequest({
-        params: { id: '0' },
+        params: { id: '-1' },
         body: {}
       })
       const res = mockResponse()
       await userEndpoint.getOne(req, res)
       expect(res.status).toHaveBeenCalledWith(500)
       expect(res.json).toHaveBeenCalledWith({
-        error: 'Error getting user from the database'
+        error: 'Error fetching user info from the database'
       })
     })
   })
@@ -180,8 +180,3 @@ describe('User Endpoint', () => {
     })
   })
 })
-
-// TODO: MySQL Testing
-// TODO: MongoDB Testing
-// TODO: Jest Mocks - Mocks for zingle, stripe, etc.
-// TODO: Others
