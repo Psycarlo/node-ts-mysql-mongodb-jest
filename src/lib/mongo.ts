@@ -31,7 +31,7 @@ const getDbConnection = async (): Promise<Db> => {
 
 const closeConnection = (): Promise<void> => {
   if (connection) return connection.close()
-  return new Promise<void>(() => null)
+  return new Promise(() => null)
 }
 
 export { User, getDbConnection, closeConnection }

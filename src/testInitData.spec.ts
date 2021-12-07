@@ -1,9 +1,10 @@
 import testInitData from './testInitData'
 import mySqlDbAccess from './lib/mysql'
-// import mongoDbAccess from './lib/mongo'
+import mongoDbAccess from './lib/mongo'
 
 afterAll(() => {
   mySqlDbAccess.close()
+  mongoDbAccess.closeConnection()
 })
 
 describe('Init Data', () => {
@@ -12,9 +13,9 @@ describe('Init Data', () => {
     expect(result).toEqual([{ id: 1, info: 'myTestInfo' }])
   })
 
-  // it('should return mongodb init data', async () => {
-  //   const result = await testInitData.getMongoDBInitData()
-  //   console.log(result)
-  //   expect(result).toBeTruthy()
-  // })
+  it('should return mongodb init data', async () => {
+    const result = await testInitData.getMongoDBInitData()
+    console.log(result)
+    expect(result).toBeTruthy()
+  })
 })

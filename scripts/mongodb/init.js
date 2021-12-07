@@ -11,6 +11,4 @@ db.createUser({
 
 db.createCollection('test')
 
-db.test.createIndex({ info: 1 }, { name: 'idx_info' })
-
-db.test.insert({ info: 'myTestInfo' })
+db.test.insertOne({ info: 'myTestInfo' })

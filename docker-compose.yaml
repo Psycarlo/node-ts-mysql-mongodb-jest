@@ -40,7 +40,7 @@ services:
       MYSQL_PASSWORD: bitcoinislove
       MYSQL_DATABASE: mysqltests
       MONGODB_URL: mongodb://psycarlo:bitcoinislove@mongo:27017
-      MONGODB_DATABASE: mongotests
+      MONGODB_DBNAME: mongotests
       WAIT_HOSTS: mysql:3306, mongo:27017
     depends_on:
       - mysql

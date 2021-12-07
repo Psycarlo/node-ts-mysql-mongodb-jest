@@ -29,7 +29,7 @@ const database = mysql.createPool({
     : { password: 'bitcoinislove' }),
   database: process.env.MYSQL_DATABASE || 'psycarlo',
   charset: 'utf8mb4'
-  // Timezone removed. Might to want to add it again
+  // Timezone removed. Might want to add it again
 })
 
 const connect = (): Promise<mysql.PoolConnection> => {
