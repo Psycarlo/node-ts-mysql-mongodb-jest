@@ -15,7 +15,7 @@ services:
       - '3305:3306' # Dev db should be running on port 3306, so for test db let's use 3305
     volumes:
       - './data/mysql:/var/lib/mysql:rw'
-      - './scripts/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro' # Runs only once. Drop the volume to run it again
+      - './scripts/mysql/schema.sql:/docker-entrypoint-initdb.d/1.sql:ro' # Runs only once. Drop the volume to run it again
   mongo:
     image: mongo
     logging:
@@ -26,6 +26,9 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: bitcoinislove
     ports:
       - '27016:27017' # Dev db should be running on port 27017, so for test db let's use 27016
+    volumes:
+      - './data/mongodb:/data/db:rw'
+      - './scripts/mongodb/init.js:/docker-entrypoint-initdb.d/init-mongo.js:ro'
   integration:
     build:
       context: ./

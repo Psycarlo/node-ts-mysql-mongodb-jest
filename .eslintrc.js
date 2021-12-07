@@ -31,7 +31,7 @@ module.exports = {
 
   plugins: ['@typescript-eslint', 'prettier'],
 
-  ignorePatterns: ['**/migrations', 'build'],
+  ignorePatterns: ['**/migrations', 'build', 'scripts'],
   rules: {
     'no-console': process.env.NODE_ENV === 'production' ? 'error' : 'off',
     'no-debugger': process.env.NODE_ENV === 'production' ? 'error' : 'off',
